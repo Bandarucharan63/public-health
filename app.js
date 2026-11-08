@@ -94,13 +94,22 @@ function filteredRecords() {
   });
 }
 
-function addFilterOptions(select, fields, labeler) {
-  const labels = new Set(appState.records.map((record) => labeler(record)));
-  fields.map(([, label]) => label).filter((label) => labels.has(label)).forEach((label) => {
+function addFilterOptions(select, fields) {
+  fields.map(([, label]) => label).forEach((label) => {
     const option = document.createElement('option');
     option.value = label;
     option.textContent = label;
     select.append(option);
+  });
+}
+
+function refreshFilterOptions() {
+  [['region-filter', REGION_FIELDS], ['program-filter', PROGRAM_FIELDS], ['age-filter', AGE_GROUP_FIELDS]].forEach(([id, fields]) => {
+    const select = byId(id);
+    const selected = select.value;
+    select.replaceChildren(new Option(`All ${id === 'region-filter' ? 'regions' : id === 'program-filter' ? 'programs' : 'ages'}`, 'all'));
+    addFilterOptions(select, fields);
+    select.value = [...select.options].some((option) => option.value === selected) ? selected : 'all';
   });
 }
 
@@ -343,27 +352,19 @@ async function loadData(role, email) {
     const response = await fetch(DATA_URL);
     if (!response.ok) throw new Error(`CSV request failed: ${response.status}`);
     const sourceRecords = parseCsv(await response.text());
-    if (role === 'user') {
-      const databaseKey = `fieldwork-user-database:${email.toLowerCase()}`;
-      const savedRecords = localStorage.getItem(databaseKey);
-      if (savedRecords === null) {
-        appState.records = sourceRecords;
-        localStorage.setItem(databaseKey, JSON.stringify(sourceRecords));
-      } else {
-        appState.records = JSON.parse(savedRecords);
-        if (!Array.isArray(appState.records)) throw new Error('The user database is invalid.');
-      }
-    } else {
+    const databaseKey = role === 'user'
+      ? `fieldwork-user-database:${email.toLowerCase()}`
+      : 'fieldwork-admin-database';
+    const savedRecords = localStorage.getItem(databaseKey);
+    if (savedRecords === null) {
       appState.records = sourceRecords;
+      localStorage.setItem(databaseKey, JSON.stringify(sourceRecords));
+    } else {
+      appState.records = JSON.parse(savedRecords);
+      if (!Array.isArray(appState.records)) throw new Error('The saved database is invalid.');
     }
     if (!appState.records.length) throw new Error('The CSV has no participant rows.');
-    ['region-filter', 'program-filter', 'age-filter'].forEach((id) => {
-      const select = byId(id);
-      while (select.options.length > 1) select.remove(1);
-    });
-    addFilterOptions(byId('region-filter'), REGION_FIELDS, regionFor);
-    addFilterOptions(byId('program-filter'), PROGRAM_FIELDS, programFor);
-    addFilterOptions(byId('age-filter'), AGE_GROUP_FIELDS, ageGroupFor);
+    refreshFilterOptions();
     byId('data-error').hidden = true;
     byId('dataset-status').textContent = role === 'user' ? 'User database connected' : 'Admin dataset connected';
     byId('dataset-count').textContent = `${formatNumber(sum(appState.records, 'Participant_Count'))} records loaded`;
@@ -450,7 +451,7 @@ function enterWorkspace(role, email) {
   }
   byId('login-screen').hidden = true;
   byId('app').hidden = false;
-  setView(role === 'user' ? 'profile' : 'overview');
+  setView('overview');
   loadData(role, email);
 }
 
